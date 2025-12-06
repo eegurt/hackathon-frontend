@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  @apply box-border;
+}
+
+body {
+  @apply min-h-screen bg-gradient-to-br from-blue-50 via-white to-cyan-50 text-gray-800 antialiased;
+}
+
+.glass-card {
+  @apply bg-white/80 backdrop-blur shadow-xl border border-white/60;
+}
+
+.card-title {
+  @apply text-lg font-bold text-gray-800;
+}
+
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hidden {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.pulse {
+  animation: pulse 12s ease-in-out infinite;
+}
+
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.tech-grid {
+  background-image: linear-gradient(rgba(13, 125, 255, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(13, 125, 255, 0.08) 1px, transparent 1px);
+  background-size: 120px 120px;
+  mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.65), transparent 70%);
+}
+
+.glass-dots {
+  background-image: radial-gradient(rgba(13, 125, 255, 0.18) 1px, transparent 1.2px);
+  background-size: 14px 14px;
+}
+
+@keyframes pulse {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
