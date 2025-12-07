@@ -512,7 +512,7 @@ export default function Home() {
                   <ChevronDown className="w-4 h-4" />
                 </button>
                 {showAuthMenu && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-[1000]">
                     <div className="px-4 py-2 text-sm text-gray-700">Роль: {userType || '—'}</div>
                     <a
                       href="https://back.gidroatlas.info/admin/"
@@ -605,7 +605,7 @@ export default function Home() {
 
         <section className={isExpert ? "grid grid-cols-1 xl:grid-cols-3 gap-6" : "grid grid-cols-1 gap-6"}>
           <div className={isExpert ? "xl:col-span-2" : ""}>
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden h-[520px] relative">
+            <div className="bg-white rounded-xl shadow-lg overflow-hidden h-[520px] relative z-0">
               <div className="absolute top-3 left-3 z-10 bg-white/80 backdrop-blur px-3 py-1 rounded-full text-sm text-gray-700 shadow">
                 {loading ? 'Загрузка...' : `${filteredAndSortedObjects.length} объектов на карте`}
               </div>
