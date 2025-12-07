@@ -167,6 +167,21 @@ export default function Home() {
           ? 'Низкий'
           : getPriorityLabel(priorityScore);
 
+      const rawPdfUrl = obj.pdf_url;
+      const rawPdf = obj.pdf;
+      let pdfUrl = '#';
+      if (rawPdfUrl) {
+        pdfUrl = rawPdfUrl;
+      } else if (rawPdf) {
+        if (typeof rawPdf === 'string' && rawPdf.startsWith('http')) {
+          pdfUrl = rawPdf;
+        } else if (typeof rawPdf === 'string') {
+          const normalized = rawPdf.replace(/^\//, '');
+          const withMedia = normalized.startsWith('media/') ? normalized : `media/${normalized}`;
+          pdfUrl = `${API_BASE}/${withMedia}`;
+        }
+      }
+
       return {
         id: obj.id,
         name: obj.name,
@@ -181,7 +196,7 @@ export default function Home() {
         technical_condition: obj.technical_condition || 0,
         latitude: parseFloat(obj.latitude) || 0,
         longitude: parseFloat(obj.longitude) || 0,
-        pdf_url: obj.pdf ?? '#',
+        pdf_url: pdfUrl,
         priorityScore,
         priorityLabel,
       };
