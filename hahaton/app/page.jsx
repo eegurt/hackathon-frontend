@@ -79,6 +79,22 @@ export default function Home() {
   const isExpert = userType === 'expert';
 
   useEffect(() => {
+    if (!isExpert) {
+      setSearchTerm('');
+      setFilters({
+        region: '',
+        resource_type: '',
+        water_type: '',
+        fauna: '',
+        passport_date_from: '',
+        passport_date_to: '',
+        technical_condition: '',
+      });
+      setShowFilters(false);
+    }
+  }, [isExpert]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     const raw = window.localStorage.getItem(AUTH_KEY);
     if (raw) {
