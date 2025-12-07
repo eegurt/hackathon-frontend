@@ -298,7 +298,7 @@ export default function Home() {
   const handleSelectObject = async (obj) => {
     if (!obj?.id) return;
     setSelectedObject(obj);
-    setObjectForm({ ...obj, fauna: obj.fauna ? 'true' : 'false' });
+    setObjectForm({ ...obj, fauna: obj.fauna ? 'true' : 'false', pdfFile: null });
     setSelectedPriority(null);
     setPriorityForm(null);
     setDetailLoading(true);
@@ -312,7 +312,7 @@ export default function Home() {
         const detail = await detailRes.json();
         const mapped = mapObjectDetail(detail);
         setSelectedObject(mapped);
-        setObjectForm({ ...mapped, fauna: mapped.fauna ? 'true' : 'false' });
+        setObjectForm({ ...mapped, fauna: mapped.fauna ? 'true' : 'false', pdfFile: null });
       }
       if (priorityRes.ok) {
         const pr = await priorityRes.json();
@@ -330,25 +330,29 @@ export default function Home() {
     if (!selectedObject?.id || !objectForm) return;
     setSaveMessage('');
     try {
-      const body = {
-        name: objectForm.name,
-        region: Number(objectForm.regionId) || null,
-        resource_type: Number(objectForm.resourceTypeId) || null,
-        water_type: objectForm.waterTypeId ? Number(objectForm.waterTypeId) : null,
-        fauna: objectForm.fauna === 'true',
-        passport_date: objectForm.passport_date,
-        technical_condition: Number(objectForm.technical_condition) || 0,
-        latitude: objectForm.latitude,
-        longitude: objectForm.longitude,
-        pdf: objectForm.pdf_url === '#' ? null : objectForm.pdf_url,
-        priority: selectedObject.priorityScore || 0,
-      };
-      const res = await fetch(`${API_BASE}/atla/objects/${selectedObject.id}/`, { method: 'PUT', headers: headersWithAuth(), body: JSON.stringify(body) });
+      const formData = new FormData();
+      formData.append('name', objectForm.name || '');
+      if (objectForm.regionId) formData.append('region', objectForm.regionId);
+      if (objectForm.resourceTypeId) formData.append('resource_type', objectForm.resourceTypeId);
+      if (objectForm.waterTypeId) formData.append('water_type', objectForm.waterTypeId);
+      formData.append('fauna', objectForm.fauna === 'true' ? 'true' : 'false');
+      if (objectForm.passport_date) formData.append('passport_date', objectForm.passport_date);
+      formData.append('technical_condition', String(Number(objectForm.technical_condition) || 0));
+      if (objectForm.latitude !== undefined) formData.append('latitude', String(objectForm.latitude));
+      if (objectForm.longitude !== undefined) formData.append('longitude', String(objectForm.longitude));
+      formData.append('priority', String(selectedObject.priorityScore || 0));
+      if (objectForm.pdfFile) formData.append('pdf', objectForm.pdfFile);
+
+      const res = await fetch(`${API_BASE}/atla/objects/${selectedObject.id}/`, {
+        method: 'PUT',
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+        body: formData,
+      });
       if (!res.ok) throw new Error('Не удалось сохранить объект');
       const data = await res.json();
       const mapped = mapObjectDetail(data);
       setSelectedObject(mapped);
-      setObjectForm({ ...mapped, fauna: mapped.fauna ? 'true' : 'false' });
+      setObjectForm({ ...mapped, fauna: mapped.fauna ? 'true' : 'false', pdfFile: null });
       setSaveMessage('Объект сохранён');
       setObjects((prev) => prev.map((o) => (o.id === mapped.id ? mapped : o)));
     } catch (err) {
@@ -843,8 +847,18 @@ export default function Home() {
                       <input className="border border-gray-300 rounded-lg px-3 py-2" value={objectForm?.longitude || ''} onChange={(e) => setObjectForm((p) => ({ ...p, longitude: e.target.value }))} />
                     </label>
                     <label className="flex flex-col gap-1 md:col-span-2">
-                      <span className="text-gray-600">Ссылка на паспорт (PDF)</span>
-                      <input className="border border-gray-300 rounded-lg px-3 py-2" value={objectForm?.pdf_url || ''} onChange={(e) => setObjectForm((p) => ({ ...p, pdf_url: e.target.value }))} />
+                      <span className="text-gray-600">Паспорт (PDF)</span>
+                      {selectedObject?.pdf_url && selectedObject.pdf_url !== '#' && (
+                        <a href={selectedObject.pdf_url} target="_blank" rel="noreferrer" className="text-primary-600 text-sm underline">
+                          Текущий файл
+                        </a>
+                      )}
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        className="border border-gray-300 rounded-lg px-3 py-2"
+                        onChange={(e) => setObjectForm((p) => ({ ...(p || {}), pdfFile: e.target.files?.[0] || null }))}
+                      />
                     </label>
                   </div>
                   <div className="flex items-center gap-3 mt-4">
