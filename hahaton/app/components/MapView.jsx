@@ -43,35 +43,37 @@ export default function MapView({ objects, selectedObject, onSelect }) {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       <MapFocus selected={selectedObject} />
-      {objects.map((obj) => (
-        <CircleMarker
-          key={obj.id}
-          center={[obj.latitude, obj.longitude]}
-          radius={10}
-          pathOptions={{
-            color: '#ffffff',
-            weight: 2,
-            fillColor: conditionColors[obj.technical_condition] || '#94a3b8',
-            fillOpacity: 0.9,
-          }}
-          eventHandlers={{
-            click: () => onSelect(obj),
-          }}
-        >
-          <Tooltip direction="top" offset={[0, -2]} opacity={1}>
-            <div className="space-y-1">
-              <div className="font-semibold text-sm">{obj.name}</div>
-              <div className="text-xs text-gray-700">{obj.region}</div>
-              <div className="text-xs">
-                Приоритет:{' '}
-                <span className="font-semibold">
-                  {obj.priorityLabel} ({obj.technical_condition} кат.)
-                </span>
+      {objects
+        .filter((obj) => Number.isFinite(obj.latitude) && Number.isFinite(obj.longitude))
+        .map((obj) => (
+          <CircleMarker
+            key={obj.id}
+            center={[obj.latitude, obj.longitude]}
+            radius={10}
+            pathOptions={{
+              color: '#ffffff',
+              weight: 2,
+              fillColor: conditionColors[obj.technical_condition] || '#94a3b8',
+              fillOpacity: 0.9,
+            }}
+            eventHandlers={{
+              click: () => onSelect(obj),
+            }}
+          >
+            <Tooltip direction="top" offset={[0, -2]} opacity={1}>
+              <div className="space-y-1">
+                <div className="font-semibold text-sm">{obj.name}</div>
+                <div className="text-xs text-gray-700">{obj.regionName || obj.region}</div>
+                <div className="text-xs">
+                  Приоритет:{' '}
+                  <span className="font-semibold">
+                    {obj.priorityLabel} ({obj.technical_condition} кат.)
+                  </span>
+                </div>
               </div>
-            </div>
-          </Tooltip>
-        </CircleMarker>
-      ))}
+            </Tooltip>
+          </CircleMarker>
+        ))}
     </MapContainer>
   );
 }

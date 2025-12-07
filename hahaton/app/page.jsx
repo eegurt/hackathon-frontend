@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import {
@@ -12,91 +12,14 @@ import {
   Tooltip,
   ArcElement,
 } from 'chart.js';
-import { Search, Filter, FileText, LogIn, LogOut, EyeOff } from 'lucide-react';
+import { Search, Filter, FileText, LogIn, LogOut, EyeOff, ChevronDown } from 'lucide-react';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Tooltip, Legend);
 
 const MapView = dynamic(() => import('./components/MapView'), { ssr: false });
 
-const mockObjects = [
-  {
-    id: 1,
-    name: 'Озеро Балхаш',
-    region: 'Алматинская область',
-    resource_type: 'озеро',
-    water_type: 'непресная',
-    fauna: true,
-    passport_date: '2020-03-15',
-    technical_condition: 4,
-    latitude: 46.75,
-    longitude: 74.98,
-    pdf_url: '#',
-  },
-  {
-    id: 2,
-    name: 'Канал имени Кирова',
-    region: 'Кызылординская область',
-    resource_type: 'канал',
-    water_type: 'пресная',
-    fauna: false,
-    passport_date: '2018-07-22',
-    technical_condition: 5,
-    latitude: 44.5,
-    longitude: 65.5,
-    pdf_url: '#',
-  },
-  {
-    id: 3,
-    name: 'Водохранилище Капчагай',
-    region: 'Алматинская область',
-    resource_type: 'водохранилище',
-    water_type: 'пресная',
-    fauna: true,
-    passport_date: '2022-01-10',
-    technical_condition: 2,
-    latitude: 44.15,
-    longitude: 77.38,
-    pdf_url: '#',
-  },
-  {
-    id: 4,
-    name: 'Озеро Зайсан',
-    region: 'Восточно-Казахстанская область',
-    resource_type: 'озеро',
-    water_type: 'пресная',
-    fauna: true,
-    passport_date: '2019-11-30',
-    technical_condition: 3,
-    latitude: 46.8,
-    longitude: 83.2,
-    pdf_url: '#',
-  },
-  {
-    id: 5,
-    name: 'Канал Сырдарья',
-    region: 'Туркестанская область',
-    resource_type: 'канал',
-    water_type: 'непресная',
-    fauna: false,
-    passport_date: '2015-05-18',
-    technical_condition: 5,
-    latitude: 42.3,
-    longitude: 68.8,
-    pdf_url: '#',
-  },
-];
-
-const regions = [
-  'Алматинская область',
-  'Кызылординская область',
-  'Восточно-Казахстанская область',
-  'Туркестанская область',
-  'Актюбинская область',
-  'Карагандинская область',
-];
-
-const resourceTypes = ['озеро', 'канал', 'водохранилище'];
-const waterTypes = ['пресная', 'непресная'];
+const API_BASE = 'https://back.gidroatlas.info';
+const AUTH_KEY = 'gidroatlas_auth';
 
 const calculatePriority = (technical_condition, passport_date) => {
   const today = new Date();
@@ -112,11 +35,22 @@ const getPriorityLabel = (score) => {
 };
 
 export default function Home() {
-  const [userRole, setUserRole] = useState(null);
+  const [userEmail, setUserEmail] = useState('');
+  const [userType, setUserType] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
+  const [showAuthMenu, setShowAuthMenu] = useState(false);
+
   const [showLogin, setShowLogin] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [registerSuccess, setRegisterSuccess] = useState(false);
+
   const [selectedObject, setSelectedObject] = useState(null);
+  const [selectedPriority, setSelectedPriority] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [parallax, setParallax] = useState({ x: 0, y: 0 });
   const [filters, setFilters] = useState({
@@ -130,82 +64,62 @@ export default function Home() {
   });
   const [sortConfig, setSortConfig] = useState({ key: 'priority', direction: 'desc' });
   const [showFilters, setShowFilters] = useState(false);
+  const [objects, setObjects] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [regions, setRegions] = useState([]);
+  const [resourceTypes, setResourceTypes] = useState([]);
+  const [waterTypes, setWaterTypes] = useState([]);
 
-  const handleLogin = (e) => {
-    e.preventDefault();
-    if (login === 'expert' && password === 'password') {
-      setUserRole('expert');
-      setShowLogin(false);
-      setLogin('');
-      setPassword('');
-    } else {
-      alert('Неверный логин или пароль. Попробуйте: логин=expert, пароль=password');
+  // Restore auth from localStorage
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const raw = window.localStorage.getItem(AUTH_KEY);
+    if (raw) {
+      try {
+        const data = JSON.parse(raw);
+        setUserEmail(data.email || '');
+        setUserType(data.user_type || '');
+        setAccessToken(data.access || '');
+        setRefreshToken(data.refresh || '');
+      } catch (e) {
+        console.warn('Failed to parse auth data', e);
+      }
+    }
+  }, []);
+
+  const persistAuth = (payload) => {
+    setUserEmail(payload.email || '');
+    setUserType(payload.user_type || '');
+    setAccessToken(payload.access || '');
+    setRefreshToken(payload.refresh || '');
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(AUTH_KEY, JSON.stringify(payload));
     }
   };
 
-  const handleLogout = () => {
-    setUserRole(null);
-    setSelectedObject(null);
+  const clearAuth = () => {
+    setUserEmail('');
+    setUserType('');
+    setAccessToken('');
+    setRefreshToken('');
+    setShowAuthMenu(false);
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(AUTH_KEY);
+    }
   };
 
-  const filteredAndSortedObjects = useMemo(() => {
-    let filtered = mockObjects.filter((obj) => {
-      if (searchTerm && !obj.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
-      if (filters.region && obj.region !== filters.region) return false;
-      if (filters.resource_type && obj.resource_type !== filters.resource_type) return false;
-      if (filters.water_type && obj.water_type !== filters.water_type) return false;
-      if (filters.fauna !== '' && obj.fauna !== (filters.fauna === 'true')) return false;
-      if (filters.passport_date_from) {
-        const objDate = new Date(obj.passport_date);
-        const fromDate = new Date(filters.passport_date_from);
-        if (objDate < fromDate) return false;
-      }
-      if (filters.passport_date_to) {
-        const objDate = new Date(obj.passport_date);
-        const toDate = new Date(filters.passport_date_to);
-        if (objDate > toDate) return false;
-      }
-      if (filters.technical_condition && obj.technical_condition !== parseInt(filters.technical_condition)) {
-        return false;
-      }
-      return true;
-    });
-
-    filtered = filtered.map((obj) => ({
-      ...obj,
-      priorityScore: calculatePriority(obj.technical_condition, obj.passport_date),
-      priorityLabel: getPriorityLabel(calculatePriority(obj.technical_condition, obj.passport_date)),
-    }));
-
-    if (sortConfig.key) {
-      filtered.sort((a, b) => {
-        let aValue = a[sortConfig.key];
-        let bValue = b[sortConfig.key];
-
-        if (sortConfig.key === 'priority') {
-          aValue = a.priorityScore;
-          bValue = b.priorityScore;
-        }
-
-        if (typeof aValue === 'string') {
-          aValue = aValue.toLowerCase();
-          bValue = bValue.toLowerCase();
-        }
-
-        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-        return 0;
-      });
-    }
-
-    return filtered;
-  }, [searchTerm, filters, sortConfig]);
+  const handleParallax = (e) => {
+    const { currentTarget, clientX, clientY } = e;
+    const rect = currentTarget.getBoundingClientRect();
+    const x = (clientX - rect.left - rect.width / 2) / rect.width;
+    const y = (clientY - rect.top - rect.height / 2) / rect.height;
+    setParallax({ x, y });
+  };
 
   const handleSort = (key) => {
     let direction = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
+    if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
     setSortConfig({ key, direction });
   };
 
@@ -227,9 +141,141 @@ export default function Home() {
     setSearchTerm('');
   };
 
-  const handleMapClick = (obj) => {
-    setSelectedObject(obj);
-  };
+  const regionMap = useMemo(() => Object.fromEntries(regions.map((r) => [r.id, r.name])), [regions]);
+  const resourceTypeMap = useMemo(
+    () => Object.fromEntries(resourceTypes.map((r) => [r.id, r.name])),
+    [resourceTypes],
+  );
+  const waterTypeMap = useMemo(() => Object.fromEntries(waterTypes.map((w) => [w.id, w.name])), [waterTypes]);
+
+  const mapObjectDetail = useCallback(
+    (obj) => {
+      const priorityScore =
+        obj.priority_score ?? obj.priority ?? calculatePriority(obj.technical_condition || 0, obj.passport_date);
+      const priorityLabel =
+        obj.priority_level === 'high'
+          ? 'Высокий'
+          : obj.priority_level === 'medium'
+          ? 'Средний'
+          : obj.priority_level === 'low'
+          ? 'Низкий'
+          : getPriorityLabel(priorityScore);
+
+      return {
+        id: obj.id,
+        name: obj.name,
+        regionId: obj.region,
+        regionName: regionMap[obj.region] || `Регион ${obj.region ?? ''}`,
+        resourceTypeId: obj.resource_type,
+        resourceTypeName: resourceTypeMap[obj.resource_type] || `Тип ${obj.resource_type ?? ''}`,
+        waterTypeId: obj.water_type,
+        waterTypeName: obj.water_type ? waterTypeMap[obj.water_type] || `Тип воды ${obj.water_type}` : '—',
+        fauna: Boolean(obj.fauna),
+        passport_date: obj.passport_date,
+        technical_condition: obj.technical_condition || 0,
+        latitude: parseFloat(obj.latitude) || 0,
+        longitude: parseFloat(obj.longitude) || 0,
+        pdf_url: obj.pdf ?? '#',
+        priorityScore,
+        priorityLabel,
+      };
+    },
+    [regionMap, resourceTypeMap, waterTypeMap],
+  );
+
+  useEffect(() => {
+    const loadDictionaries = async () => {
+      try {
+        const [regionsRes, resourceRes, waterRes] = await Promise.all([
+          fetch(`${API_BASE}/atla/regions/`),
+          fetch(`${API_BASE}/atla/resource-types/`),
+          fetch(`${API_BASE}/atla/water-types/`),
+        ]);
+
+        if (!regionsRes.ok || !resourceRes.ok || !waterRes.ok) {
+          throw new Error('Не удалось загрузить справочники');
+        }
+
+        const [regionsData, resourceData, waterData] = await Promise.all([
+          regionsRes.json(),
+          resourceRes.json(),
+          waterRes.json(),
+        ]);
+
+        setRegions(regionsData || []);
+        setResourceTypes(resourceData || []);
+        setWaterTypes(waterData || []);
+      } catch (err) {
+        console.error(err);
+        setError('Не удалось загрузить справочники');
+      }
+    };
+
+    loadDictionaries();
+  }, []);
+
+  useEffect(() => {
+    const fetchObjects = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const params = new URLSearchParams();
+        if (searchTerm) params.append('search', searchTerm);
+        if (filters.region) params.append('region', filters.region);
+        if (filters.resource_type) params.append('resource_type', filters.resource_type);
+        if (filters.water_type) params.append('water_type', filters.water_type);
+        if (filters.fauna !== '') params.append('fauna', filters.fauna);
+        if (filters.passport_date_from) params.append('passport_date_after', filters.passport_date_from);
+        if (filters.passport_date_to) params.append('passport_date_before', filters.passport_date_to);
+        if (filters.technical_condition) params.append('technical_condition', filters.technical_condition);
+
+        const res = await fetch(`${API_BASE}/atla/objects/${params.toString() ? `?${params}` : ''}`);
+        if (!res.ok) {
+          throw new Error('Не удалось загрузить объекты');
+        }
+        const data = await res.json();
+
+        const normalized = (data || []).map(mapObjectDetail);
+
+        setObjects(normalized);
+      } catch (err) {
+        console.error(err);
+        setError(err.message || 'Ошибка загрузки данных');
+        setObjects([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchObjects();
+  }, [searchTerm, filters, mapObjectDetail]);
+
+  const filteredAndSortedObjects = useMemo(() => {
+    const list = objects.slice();
+
+    if (sortConfig.key) {
+      list.sort((a, b) => {
+        let aValue = a[sortConfig.key];
+        let bValue = b[sortConfig.key];
+
+        if (sortConfig.key === 'priority') {
+          aValue = a.priorityScore;
+          bValue = b.priorityScore;
+        }
+
+        if (typeof aValue === 'string') {
+          aValue = aValue.toLowerCase();
+          bValue = bValue.toLowerCase();
+        }
+
+        if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+        if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+      });
+    }
+
+    return list;
+  }, [objects, sortConfig]);
 
   const stats = useMemo(() => {
     const total = filteredAndSortedObjects.length;
@@ -243,17 +289,9 @@ export default function Home() {
     };
   }, [filteredAndSortedObjects]);
 
-  const handleParallax = (e) => {
-    const { currentTarget, clientX, clientY } = e;
-    const rect = currentTarget.getBoundingClientRect();
-    const x = (clientX - rect.left - rect.width / 2) / rect.width;
-    const y = (clientY - rect.top - rect.height / 2) / rect.height;
-    setParallax({ x, y });
-  };
-
   const regionChartData = useMemo(() => {
     const counts = filteredAndSortedObjects.reduce((acc, obj) => {
-      acc[obj.region] = (acc[obj.region] || 0) + 1;
+      acc[obj.regionName] = (acc[obj.regionName] || 0) + 1;
       return acc;
     }, {});
     const labels = Object.keys(counts);
@@ -273,17 +311,19 @@ export default function Home() {
   const waterTypeChartData = useMemo(() => {
     const counts = filteredAndSortedObjects.reduce(
       (acc, obj) => {
-        acc[obj.water_type] = (acc[obj.water_type] || 0) + 1;
+        const key = obj.waterTypeName || 'Не указано';
+        acc[key] = (acc[key] || 0) + 1;
         return acc;
       },
-      { пресная: 0, непресная: 0 },
+      {},
     );
+    const labels = Object.keys(counts);
     return {
-      labels: ['Пресная', 'Непресная'],
+      labels,
       datasets: [
         {
-          data: [counts['пресная'], counts['непресная']],
-          backgroundColor: ['#0d7dff', '#f97316'],
+          data: labels.map((label) => counts[label]),
+          backgroundColor: ['#0d7dff', '#f97316', '#94a3b8'],
         },
       ],
     };
@@ -292,7 +332,7 @@ export default function Home() {
   const priorityChartData = useMemo(() => {
     const counts = { Высокий: 0, Средний: 0, Низкий: 0 };
     filteredAndSortedObjects.forEach((obj) => {
-      counts[obj.priorityLabel] += 1;
+      counts[obj.priorityLabel] = (counts[obj.priorityLabel] || 0) + 1;
     });
     return {
       labels: ['Высокий', 'Средний', 'Низкий'],
@@ -306,6 +346,62 @@ export default function Home() {
       ],
     };
   }, [filteredAndSortedObjects]);
+
+  const handleSelectObject = async (obj) => {
+    if (!obj?.id) return;
+    setSelectedObject(obj);
+    setSelectedPriority(null);
+    setDetailLoading(true);
+    try {
+      const [detailRes, priorityRes] = await Promise.all([
+        fetch(`${API_BASE}/atla/objects/${obj.id}/`),
+        fetch(`${API_BASE}/atla/priority-scores/${obj.id}/by-object/`),
+      ]);
+
+      if (detailRes.ok) {
+        const detail = await detailRes.json();
+        setSelectedObject(mapObjectDetail(detail));
+      }
+      if (priorityRes.ok) {
+        const pr = await priorityRes.json();
+        setSelectedPriority(pr);
+      }
+    } catch (err) {
+      console.error('Ошибка загрузки деталей объекта', err);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError('');
+    try {
+      const endpoint = authMode === 'login' ? '/user/login/' : '/user/register/';
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: login, password }),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || 'Ошибка запроса');
+      }
+      const data = await res.json();
+      if (authMode === 'login') {
+        persistAuth(data);
+        setShowLogin(false);
+        setShowAuthMenu(false);
+      } else {
+        setRegisterSuccess(true);
+        setAuthMode('login');
+      }
+      setLogin('');
+      setPassword('');
+    } catch (err) {
+      setAuthError(err.message || 'Ошибка авторизации');
+    }
+  };
 
   return (
     <div className="min-h-screen relative overflow-hidden" onMouseMove={handleParallax}>
@@ -370,17 +466,33 @@ export default function Home() {
               <span className="hidden sm:inline">Фильтры</span>
             </button>
 
-            {userRole === 'expert' ? (
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden sm:inline">Выход</span>
-              </button>
+            {userEmail ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowAuthMenu((v) => !v)}
+                  className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
+                >
+                  <span>{userEmail}</span>
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+                {showAuthMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
+                    <div className="px-4 py-2 text-sm text-gray-700">Роль: {userType || '—'}</div>
+                    <button
+                      onClick={clearAuth}
+                      className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 border-t border-gray-100 flex items-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4" /> Выйти
+                    </button>
+                  </div>
+                )}
+              </div>
             ) : (
               <button
-                onClick={() => setShowLogin(true)}
+                onClick={() => {
+                  setShowLogin(true);
+                  setAuthMode('login');
+                }}
                 className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors"
               >
                 <LogIn className="w-4 h-4" />
@@ -402,8 +514,8 @@ export default function Home() {
             >
               <option value="">Все области</option>
               {regions.map((region) => (
-                <option key={region} value={region}>
-                  {region}
+                <option key={region.id} value={region.id}>
+                  {region.name}
                 </option>
               ))}
             </select>
@@ -416,8 +528,8 @@ export default function Home() {
             >
               <option value="">Все типы</option>
               {resourceTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
+                <option key={type.id} value={type.id}>
+                  {type.name}
                 </option>
               ))}
             </select>
@@ -430,8 +542,8 @@ export default function Home() {
             >
               <option value="">Тип воды</option>
               {waterTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
+                <option key={type.id} value={type.id}>
+                  {type.name}
                 </option>
               ))}
             </select>
@@ -491,16 +603,20 @@ export default function Home() {
       )}
 
       <main className="container mx-auto px-4 py-6 flex flex-col gap-6">
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">{error}</div>
+        )}
+
         <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <div className="xl:col-span-2">
             <div className="bg-white rounded-xl shadow-lg overflow-hidden h-[520px] relative">
               <div className="absolute top-3 left-3 z-10 bg-white/80 backdrop-blur px-3 py-1 rounded-full text-sm text-gray-700 shadow">
-                {filteredAndSortedObjects.length} объектов на карте
+                {loading ? 'Загрузка...' : `${filteredAndSortedObjects.length} объектов на карте`}
               </div>
               <MapView
                 objects={filteredAndSortedObjects}
                 selectedObject={selectedObject}
-                onSelect={handleMapClick}
+                onSelect={handleSelectObject}
               />
             </div>
           </div>
@@ -509,7 +625,7 @@ export default function Home() {
             <div
               className="glass-card rounded-xl p-4 relative overflow-hidden"
               style={{
-                transform: `translate3d(${parallax.x * 8}px, ${parallax.y * 8}px, 0)` ,
+                transform: `translate3d(${parallax.x * 8}px, ${parallax.y * 8}px, 0)`,
                 transition: 'transform 120ms ease-out',
               }}
             >
@@ -548,15 +664,15 @@ export default function Home() {
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-gray-600">Область:</span>
-                    <span className="font-medium text-right">{selectedObject.region}</span>
+                    <span className="font-medium text-right">{selectedObject.regionName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Тип ресурса:</span>
-                    <span className="font-medium text-right">{selectedObject.resource_type}</span>
+                    <span className="font-medium text-right">{selectedObject.resourceTypeName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Тип воды:</span>
-                    <span className="font-medium text-right">{selectedObject.water_type}</span>
+                    <span className="font-medium text-right">{selectedObject.waterTypeName}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">Фауна:</span>
@@ -578,12 +694,28 @@ export default function Home() {
                       {selectedObject.latitude.toFixed(2)}, {selectedObject.longitude.toFixed(2)}
                     </span>
                   </div>
-                  {userRole === 'expert' && (
-                    <button className="w-full mt-3 bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors flex items-center justify-center gap-2">
-                      <FileText className="w-4 h-4" />
-                      Открыть паспорт
-                    </button>
-                  )}
+                  <>
+                    {selectedObject.pdf_url && selectedObject.pdf_url !== '#' && (
+                      <a
+                        href={selectedObject.pdf_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="w-full mt-3 bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors flex items-center justify-center gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        Открыть паспорт
+                      </a>
+                    )}
+                    {selectedPriority && (
+                      <div className="mt-3 p-3 bg-slate-50 rounded-lg text-xs text-gray-700 border border-slate-200">
+                        <div className="font-semibold text-gray-800 mb-1">Приоритет (детали)</div>
+                        <div>Оценка: {selectedPriority.score} ({selectedPriority.level})</div>
+                        <div>Формула: {selectedPriority.formula_version}</div>
+                        <div>Обновлено: {new Date(selectedPriority.updated_at).toLocaleString('ru-RU')}</div>
+                      </div>
+                    )}
+                    {detailLoading && <div className="text-xs text-gray-500 mt-1">Загрузка деталей...</div>}
+                  </>
                 </div>
               </div>
             ) : (
@@ -599,41 +731,35 @@ export default function Home() {
           <div className="glass-card rounded-xl p-4 lg:col-span-1">
             <div className="flex items-center justify-between mb-2">
               <h3 className="card-title">Приоритеты обследования</h3>
-              {userRole !== 'expert' && <span className="text-xs text-gray-500">Только для экспертов</span>}
+              <span className="text-xs text-gray-500">Кликайте для деталей</span>
             </div>
-            {userRole === 'expert' ? (
-              <div className="space-y-3 max-h-[360px] overflow-y-auto scrollbar-hidden">
-                {filteredAndSortedObjects.map((obj) => (
-                  <div
-                    key={obj.id}
-                    className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
-                    onClick={() => setSelectedObject(obj)}
-                  >
-                    <div className="flex justify-between items-start">
-                      <div className="font-medium text-gray-800 text-sm">{obj.name}</div>
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          obj.priorityScore >= 12
-                            ? 'bg-red-100 text-red-800'
-                            : obj.priorityScore >= 6
-                            ? 'bg-yellow-100 text-yellow-800'
-                            : 'bg-green-100 text-green-800'
-                        }`}
-                      >
-                        {obj.priorityLabel}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-600 mt-1">
-                      {obj.region} • Состояние: {obj.technical_condition}
-                    </div>
+            <div className="space-y-3 max-h-[360px] overflow-y-auto scrollbar-hidden">
+              {filteredAndSortedObjects.map((obj) => (
+                <div
+                  key={obj.id}
+                  className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 cursor-pointer"
+                  onClick={() => handleSelectObject(obj)}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="font-medium text-gray-800 text-sm">{obj.name}</div>
+                    <span
+                      className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        obj.priorityScore >= 12
+                          ? 'bg-red-100 text-red-800'
+                          : obj.priorityScore >= 6
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : 'bg-green-100 text-green-800'
+                      }`}
+                    >
+                      {obj.priorityLabel}
+                    </span>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-sm text-gray-600">
-                Авторизуйтесь как эксперт, чтобы видеть приоритеты обследования и открывать паспорта объектов.
-              </div>
-            )}
+                  <div className="text-xs text-gray-600 mt-1">
+                    {obj.regionName} • Состояние: {obj.technical_condition}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="glass-card rounded-xl p-4">
@@ -672,7 +798,7 @@ export default function Home() {
                     cutout: '65%',
                   }}
                 />
-                <p className="text-xs text-gray-500 mt-2">Баланс пресной/непресной</p>
+                <p className="text-xs text-gray-500 mt-2">Баланс типов воды</p>
               </div>
               <div className="flex items-center justify-center">
                 <Bar
@@ -694,20 +820,34 @@ export default function Home() {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999]">
           <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-2xl relative z-[10000]">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-gray-800">Вход в систему</h2>
+              <h2 className="text-xl font-bold text-gray-800">{authMode === 'login' ? 'Вход' : 'Регистрация'}</h2>
               <button onClick={() => setShowLogin(false)} className="text-gray-500 hover:text-gray-700">
                 ✕
               </button>
             </div>
-            <form onSubmit={handleLogin} className="space-y-4">
+            <div className="flex gap-2 mb-4 text-sm">
+              <button
+                className={`flex-1 py-2 rounded-lg border ${authMode === 'login' ? 'bg-primary-50 text-primary-700 border-primary-200' : 'border-gray-200 text-gray-700'}`}
+                onClick={() => setAuthMode('login')}
+              >
+                Вход
+              </button>
+              <button
+                className={`flex-1 py-2 rounded-lg border ${authMode === 'register' ? 'bg-primary-50 text-primary-700 border-primary-200' : 'border-gray-200 text-gray-700'}`}
+                onClick={() => setAuthMode('register')}
+              >
+                Регистрация
+              </button>
+            </div>
+            <form onSubmit={handleAuthSubmit} className="space-y-4">
               <div>
-                <label className="block text-gray-700 text-sm font-medium mb-2">Логин</label>
+                <label className="block text-gray-700 text-sm font-medium mb-2">Email</label>
                 <input
-                  type="text"
+                  type="email"
                   value={login}
                   onChange={(e) => setLogin(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="expert"
+                  placeholder="user@example.com"
                   required
                 />
               </div>
@@ -718,20 +858,40 @@ export default function Home() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                  placeholder="password"
+                  placeholder="••••••••"
                   required
                 />
               </div>
+              {authError && <div className="text-sm text-red-600">{authError}</div>}
               <button
                 type="submit"
                 className="w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors"
               >
-                Войти
+                {authMode === 'login' ? 'Войти' : 'Зарегистрироваться'}
               </button>
-              <p className="text-xs text-gray-500 text-center">
-                Для демонстрации используйте: логин=expert, пароль=password
-              </p>
+              {authMode === 'login' && (
+                <p className="text-xs text-gray-500 text-center">Нет аккаунта? Перейдите на вкладку регистрации.</p>
+              )}
             </form>
+          </div>
+        </div>
+      )}
+
+      {registerSuccess && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999]">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4 shadow-2xl">
+            <h3 className="text-xl font-bold text-gray-800 mb-2">Спасибо за регистрацию!</h3>
+            <p className="text-sm text-gray-600 mb-4">Теперь вы можете войти, используя свой email и пароль.</p>
+            <button
+              onClick={() => {
+                setRegisterSuccess(false);
+                setShowLogin(true);
+                setAuthMode('login');
+              }}
+              className="w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors"
+            >
+              Перейти к входу
+            </button>
           </div>
         </div>
       )}
